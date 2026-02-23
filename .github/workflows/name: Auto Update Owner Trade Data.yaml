@@ -4,7 +4,7 @@ on:
   schedule:
     # รันทุกวันเวลา 08:30 น. (เวลาไทย)
     - cron: '30 1 * * *'
-  workflow_dispatch: # ทำให้เรากดปุ่ม Run เองได้จากหน้าเว็บ
+  workflow_dispatch: # เพิ่มบรรทัดนี้เพื่อให้กดปุ่ม Run เองได้จากหน้าเว็บ
 
 jobs:
   scrape_data:
