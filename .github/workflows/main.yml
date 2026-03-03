@@ -29,19 +29,23 @@ jobs:
       - name: Run Script
         run: python owner_trade.py
 
-      - name: Auto-update Trade Data
+      - name: Save Data to Main Branch
         run: |
-          # ตั้งค่าบอทให้มาตรฐาน
+          # 1. ตั้งค่าบอท
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # เลือกเก็บเฉพาะไฟล์ในโฟลเดอร์ข้อมูล
+          # 2. ดึงข้อมูลล่าสุดและสลับมาที่เส้นสีฟ้า (main) ให้ชัวร์
+          git fetch origin main
+          git checkout main
+          
+          # 3. เตรียมไฟล์ CSV
           git add data_owner_trade/*.csv
           
-          # ถ้ามีไฟล์ใหม่ ให้ Commit และ Push ไปที่ main branch ตรงๆ
+          # 4. ตรวจสอบและบันทึกข้อมูล (Commit & Push)
           if ! git diff --cached --quiet; then
-            git commit -m "Auto-update: $(date +'%Y-%m-%d %H:%M:%S')"
+            git commit -m "Auto-update trade data: $(date +'%Y-%m-%d %H:%M')"
             git push origin main
           else
-            echo "No changes detected, skipping update."
+            echo "No changes to update."
           fi
