@@ -19,9 +19,9 @@ if not os.path.exists(target_folder):
 # --- ส่วนที่ 2: ตั้งค่าวันที่ ---
 date_to = datetime.datetime.today().strftime("%Y%m%d")
 
-# ดึงข้อมูลย้อนหลัง 5000 วัน
+# ดึงข้อมูลย้อนหลัง 2000 วัน
 date_from = (
-    datetime.datetime.today() - datetime.timedelta(days=5000)
+    datetime.datetime.today() - datetime.timedelta(days=2000)
 ).strftime("%Y%m%d")
 
 url = (
