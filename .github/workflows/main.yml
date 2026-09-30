@@ -2,8 +2,9 @@ name: Auto Update Owner Trade Data
 
 on:
   schedule:
-    # 04:00 น. เวลาไทย คือ 21:00 น. ของวันเดียวกันในเวลา UTC (ทุกวัน)
-    - cron: '0 21 * * *'
+    # 21:00 น. เวลาไทย คือ 4:00 น.
+    # เวลาไทย (UTC+7) จะเป็น 04:00 น. วันจันทร์–เสาร์
+    - cron: '0 21 * * 0-5'
   workflow_dispatch: 
 
 jobs:
