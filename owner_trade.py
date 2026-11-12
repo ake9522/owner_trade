@@ -70,7 +70,7 @@ try:
         headers=headers,
         timeout=60,
     )
-
+    print(f"SEC status={response.status_code}, final_url={response.url}", flush=True)
     response.raise_for_status()
     response.encoding = "utf-8-sig"
 
