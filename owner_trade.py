@@ -1,174 +1,163 @@
-import pandas as pd
-import requests
-import datetime
-import io
 import os
-from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import sys
+import time
+import datetime
+from io import StringIO
 from urllib.parse import urljoin
+import pandas as pd
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-# --- ส่วนที่ 1: กำหนด Path แบบ Relative ---
-# ใช้ได้ทั้ง Local และ GitHub Actions
-target_folder = "./data_owner_trade/"
+# ==========================================
+# CONFIGURATION
+# ==========================================
+HEADLESS_MODE = True
+WAIT_TIMEOUT = 30     # เพิ่มเวลารอสำหรับ GitHub Runner
+DAYS_BACK = 2000      # จำนวนวันย้อนหลัง
 
-if not os.path.exists(target_folder):
-    os.makedirs(target_folder)
-    print(f"Created folder: {target_folder}")
+# ใช้ Relative Path อิงจากตำแหน่งของไฟล์สคริปต์
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOCAL_PATH_DATA = os.path.join(BASE_DIR, "data_owner_trade")
+FILE_NAME = "owner_trade.csv"
+CSV_PATH = os.path.join(LOCAL_PATH_DATA, FILE_NAME)
 
-# --- ส่วนที่ 2: ตั้งค่าวันที่ ---
-date_to = datetime.datetime.today().strftime("%Y%m%d")
+# ==========================================
+# HELPER: ENVIRONMENT SETUP
+# ==========================================
+def setup_environment():
+    """เตรียม Folder สำหรับเก็บข้อมูล"""
+    print("🔧 กำลังเตรียมโฟลเดอร์เก็บข้อมูล...")
+    os.makedirs(LOCAL_PATH_DATA, exist_ok=True)
+    print(f"📁 Path: {LOCAL_PATH_DATA}")
 
-# ดึงข้อมูลย้อนหลัง 2000 วัน
-date_from = (
-    datetime.datetime.today() - datetime.timedelta(days=2000)
-).strftime("%Y%m%d")
-
-url = (
-    "https://market.sec.or.th/public/idisc/th/Viewmore/r59-2"
-    f"?DateType=1&DateFrom={date_from}&DateTo={date_to}"
-)
-
-print(f"Fetching data from: {url}")
-
-# --- ตั้งค่า Session และ Retry ---
-session = requests.Session()
-
-retry_strategy = Retry(
-    total=5,
-    connect=5,
-    read=5,
-    backoff_factor=1,
-    status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["GET"],
-)
-
-adapter = HTTPAdapter(max_retries=retry_strategy)
-
-session.mount("https://", adapter)
-session.mount("http://", adapter)
-
-headers = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/119.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,image/apng,*/*;q=0.8"
-    ),
-    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://market.sec.or.th/",
-    "Connection": "keep-alive",
-}
-
-# --- ส่วนที่ 3: เริ่มดึงข้อมูล ---
-try:
-    response = session.get(
-        url,
-        headers=headers,
-        timeout=60,
+# ==========================================
+# HELPER: MAKE DRIVER (รองรับทั้ง Windows และ Linux บน GitHub)
+# ==========================================
+def make_driver():
+    """สร้าง WebDriver instance ที่รองรับทั้งเครื่อง Local และ GitHub Actions Ubuntu"""
+    opts = webdriver.ChromeOptions()
+    if HEADLESS_MODE:
+        opts.add_argument("--headless=new")
+    
+    # Flags สำคัญสำหรับรันใน Linux / Docker / Cloud Runner
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--window-size=1920,1080")
+    opts.add_argument("--log-level=3")
+    
+    # หลีกเลี่ยงการถูกตรวจจับว่าเป็น bot
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+    opts.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
-    print(f"SEC status={response.status_code}, final_url={response.url}", flush=True)
-    response.raise_for_status()
-    response.encoding = "utf-8-sig"
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    driver = webdriver.Chrome(options=opts)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"}
+    )
+    return driver
 
-    # ค้นหาตารางทั้งหมดในหน้า
-    html_io = io.StringIO(str(soup))
-    tables = pd.read_html(html_io)
+# ==========================================
+# PARSE PAGE CONTENT
+# ==========================================
+def parse_owner_trade(html_content, base_url):
+    """แกะตารางข้อมูล และแทนที่คอลัมน์หมายเหตุด้วย Full URL ของเอกสารจริง"""
+    soup = BeautifulSoup(html_content, "html.parser")
+    tables = pd.read_html(StringIO(str(soup)))
 
     if not tables:
-        raise ValueError("No table found on the page.")
+        return None
 
-    # ตารางข้อมูลหลัก
     df = tables[0]
 
-    # =========================================================
-    # ดึง URL จากคอลัมน์หมายเหตุ
-    # =========================================================
-
-    # ค้นหาตำแหน่งคอลัมน์หมายเหตุจากชื่อคอลัมน์
-    note_column_index = next(
-        (
-            index
-            for index, column in enumerate(df.columns)
-            if "หมายเหตุ" in str(column)
-        ),
-        None,
-    )
-
-    if note_column_index is None:
-        raise ValueError("ไม่พบคอลัมน์หมายเหตุในตาราง SEC")
-
-    note_column = df.columns[note_column_index]
-
-    # เลือกตาราง HTML ที่ตรงกับตารางซึ่ง pandas อ่าน
-    html_tables = soup.find_all("table")
-
-    if not html_tables:
-        raise ValueError("ไม่พบ HTML table ในหน้า SEC")
-
-    source_table = html_tables[0]
+    # ดึงค่า href จากแท็ก <a> ในตาราง HTML
+    source_table = soup.find_all("table")[0]
     note_links = []
 
-    # วนอ่านแต่ละแถวของตาราง HTML
     for row in source_table.find_all("tr"):
         cells = row.find_all("td")
-
-        # ข้ามหัวตารางและแถวที่โครงสร้างไม่ตรง
         if len(cells) != len(df.columns):
             continue
 
-        # ดึง <a href="..."> จากคอลัมน์หมายเหตุ
-        link_tag = cells[note_column_index].find("a", href=True)
-
+        # คอลัมน์หมายเหตุจะอยู่ช่องสุดท้ายตามโครงสร้างตารางของ กลต.
+        link_tag = cells[-1].find("a", href=True)
         if link_tag:
-            href = link_tag["href"].strip()
-
-            # แปลง Relative URL ให้เป็น Absolute URL
-            full_url = urljoin(response.url, href)
-            note_links.append(full_url)
+            note_links.append(urljoin(base_url, link_tag["href"].strip()))
         else:
             note_links.append(None)
 
-    # ตรวจสอบว่าจำนวน URL ตรงกับจำนวนข้อมูล
-    if len(note_links) != len(df):
-        raise ValueError(
-            f"จำนวนแถว URL ({len(note_links)}) "
-            f"ไม่ตรงกับจำนวนข้อมูล ({len(df)})"
+    # แทนที่ข้อความ Link ในคอลัมน์หมายเหตุด้วย URL เต็ม
+    if len(note_links) == len(df):
+        note_column = next(
+            (col for col in df.columns if "หมายเหตุ" in str(col)),
+            df.columns[-1]
+        )
+        df[note_column] = note_links
+    else:
+        print(f"⚠️ เตือน: จำนวนลิงก์หมายเหตุ ({len(note_links)}) ไม่ตรงกับจำนวนแถว ({len(df)})")
+
+    return df
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+def fetch_owner_trade():
+    setup_environment()
+
+    date_to = datetime.datetime.today().strftime("%Y%m%d")
+    date_from = (datetime.datetime.today() - datetime.timedelta(days=DAYS_BACK)).strftime("%Y%m%d")
+    url = f"https://market.sec.or.th/public/idisc/th/Viewmore/r59-2?DateType=1&DateFrom={date_from}&DateTo={date_to}"
+
+    driver = None
+    try:
+        print("🔧 กำลังสร้าง WebDriver...")
+        driver = make_driver()
+
+        print(f"🌐 กำลังเปิดเว็บ SEC: {url}")
+        driver.get(url)
+
+        print("⏳ กำลังรอตารางโหลด...")
+        WebDriverWait(driver, WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.TAG_NAME, "table"))
         )
 
-    # แทนข้อความ Link ด้วย URL จริง
-    df[note_column] = note_links
+        print("⏳ กำลังรอ JavaScript เรนเดอร์ข้อมูล...")
+        time.sleep(7)
 
-    # --- ส่วนที่ 4: บันทึก CSV ---
-    full_path = os.path.join(
-        target_folder,
-        "owner_trade.csv",
-    )
+        page_source = driver.page_source
+        if "Block Response" in page_source:
+            raise PermissionError("ระบบ SEC บล็อกการเข้าถึง (WAF Block Response)")
 
-    df.to_csv(
-        full_path,
-        index=False,
-        encoding="utf-8-sig",
-    )
+        print("📊 กำลังประมวลผลตารางและดึงลิงก์หมายเหตุ...")
+        df = parse_owner_trade(page_source, driver.current_url)
 
-    print("-" * 50)
-    print("Success!")
-    print(f"Saved file: {full_path}")
-    print(f"Total rows: {len(df)}")
-    print(
-        f"Total note links: "
-        f"{df[note_column].notna().sum()}"
-    )
+        if df is not None and not df.empty:
+            df.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
+            note_col = next((c for c in df.columns if "หมายเหตุ" in str(c)), df.columns[-1])
 
-except requests.exceptions.RequestException as error:
-    print(f"Request error: {error}")
-    raise
+            print("-" * 40)
+            print(f"💾 บันทึกไฟล์สำเร็จ: {CSV_PATH}")
+            print(f"📈 จำนวนข้อมูล: {len(df):,} แถว")
+            print(f"🔗 ลิงก์หมายเหตุ: {df[note_col].notna().sum():,} ลิงก์")
+            print("-" * 40)
+        else:
+            raise ValueError("⚠️ ไม่พบข้อมูลในตาราง")
 
-except Exception as error:
-    print(f"Error occurred: {error}")
-    raise
+    except Exception as e:
+        print(f"❌ เกิดข้อผิดพลาด: {e}")
+        sys.exit(1)  # ส่ง Exit code 1 เพื่อให้ GitHub Actions แจ้งเตือนว่ามี Error
+    finally:
+        if driver:
+            driver.quit()
+            print("🔒 ปิดการทำงาน WebDriver เรียบร้อย")
+
+if __name__ == "__main__":
+    fetch_owner_trade()
