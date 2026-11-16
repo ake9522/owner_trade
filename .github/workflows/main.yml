@@ -2,9 +2,9 @@ name: Auto Update Owner Trade Data
 
 on:
   schedule:
-    # 21:00 น. เวลาไทย คือ 4:00 น.
-    # เวลาไทย (UTC+7) จะเป็น 04:00 น. วันจันทร์–เสาร์
+    # ตั้งเวลารัน 04:00 น. เวลาไทย (UTC+7) ทุกวันจันทร์–เสาร์ (คือ 21:00 UTC อาทิตย์-ศุกร์)
     - cron: '0 21 * * 0-5'
+    # หากต้องการ 21:00 น. (3 ทุ่ม) วันจันทร์–ศุกร์ ให้เปลี่ยนเป็น: '0 14 * * 1-5'
   workflow_dispatch: 
 
 jobs:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,25 +26,19 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install pandas requests beautifulsoup4 lxml html5lib
+          pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 lxml html5lib selenium
 
       - name: Run Script
         run: python owner_trade.py
 
       - name: Save Data to Main Branch
         run: |
-          # 1. ตั้งค่าบอท
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # 2. ดึงข้อมูลล่าสุดและสลับมาที่เส้นสีฟ้า (main) ให้ชัวร์
-          git fetch origin main
-          git checkout main
-          
-          # 3. เตรียมไฟล์ CSV
           git add data_owner_trade/*.csv
           
-          # 4. ตรวจสอบและบันทึกข้อมูล (Commit & Push)
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update trade data: $(date +'%Y-%m-%d %H:%M')"
             git push origin main
