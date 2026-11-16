@@ -29,23 +29,23 @@ jobs:
           pip install pandas requests beautifulsoup4 lxml html5lib selenium
 
       # -------------------------------------------------------------
-      # 🚀 จุดที่เพิ่ม: ติดตั้งและเชื่อมต่อ Cloudflare WARP (ฟรี 100%)
+      # 🚀 ติดตั้งและเชื่อมต่อ Cloudflare WARP ตรงๆ ผ่าน apt
       # -------------------------------------------------------------
-      - name: Setup Cloudflare WARP
-        uses: fscarmen/warp-action@v1.1.2
-        with:
-          mode: warp
+      - name: Install & Connect Cloudflare WARP
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt update && sudo apt install -y cloudflare-warp
+          warp-cli --accept-tos registration new || warp-cli --accept-tos register || true
+          warp-cli --accept-tos connect
+          sleep 3
 
-      # เช็คดูว่า IP เปลี่ยนจาก Microsoft Azure ไปเป็น Cloudflare หรือยัง
       - name: Verify IP Address
         run: |
           echo "Current IP:"
           curl -s https://ifconfig.me
           echo ""
 
-      # -------------------------------------------------------------
-      # รันสคริปต์ตามปกติ (ไม่ต้องแก้โค้ด Python)
-      # -------------------------------------------------------------
       - name: Run Script
         run: python owner_trade.py
 
