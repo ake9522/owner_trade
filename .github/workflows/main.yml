@@ -2,9 +2,8 @@ name: Auto Update Owner Trade Data
 
 on:
   schedule:
-    # ตั้งเวลารัน 04:00 น. เวลาไทย (UTC+7) ทุกวันจันทร์–เสาร์ (คือ 21:00 UTC อาทิตย์-ศุกร์)
+    # 21:00 UTC = 04:00 น. วันจันทร์–เสาร์ เวลาไทย
     - cron: '0 21 * * 0-5'
-    # หากต้องการ 21:00 น. (3 ทุ่ม) วันจันทร์–ศุกร์ ให้เปลี่ยนเป็น: '0 14 * * 1-5'
   workflow_dispatch: 
 
 jobs:
@@ -29,6 +28,24 @@ jobs:
           pip install --upgrade pip
           pip install pandas requests beautifulsoup4 lxml html5lib selenium
 
+      # -------------------------------------------------------------
+      # 🚀 จุดที่เพิ่ม: ติดตั้งและเชื่อมต่อ Cloudflare WARP (ฟรี 100%)
+      # -------------------------------------------------------------
+      - name: Setup Cloudflare WARP
+        uses: fscarmen/warp-action@v1.1.2
+        with:
+          mode: warp
+
+      # เช็คดูว่า IP เปลี่ยนจาก Microsoft Azure ไปเป็น Cloudflare หรือยัง
+      - name: Verify IP Address
+        run: |
+          echo "Current IP:"
+          curl -s https://ifconfig.me
+          echo ""
+
+      # -------------------------------------------------------------
+      # รันสคริปต์ตามปกติ (ไม่ต้องแก้โค้ด Python)
+      # -------------------------------------------------------------
       - name: Run Script
         run: python owner_trade.py
 
